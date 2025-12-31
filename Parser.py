@@ -84,8 +84,8 @@ class VarDeclaration(ASTNode):
     def __init__(self, var_type, identifier, value=None, line=None, col=None):
         super().__init__(line, col)
         self.var_type = var_type
-        self.identifier = identifier  # String name
-        self.value = value  # Optional initializer
+        self.identifier = identifier  
+        self.value = value  
 
     def __repr__(self):
         return f"VarDeclaration(type='{self.var_type}', id='{self.identifier}', value={self.value})"
@@ -94,7 +94,7 @@ class VarDeclaration(ASTNode):
 class Assignment(ASTNode):
     def __init__(self, identifier, value, line=None, col=None):
         super().__init__(line, col)
-        self.identifier = identifier  # String name
+        self.identifier = identifier  
         self.value = value
 
     def __repr__(self):
@@ -598,7 +598,7 @@ class Parser:
         
         value = self.expression()
         
-        if not self.expect('SEMICOLON'):  # Catches missing semicolon
+        if not self.expect('SEMICOLON'): 
             return None
 
         return Assignment(identifier, value, line, col)
@@ -616,7 +616,7 @@ class Parser:
 
         value = self.expression()
         
-        if not self.expect('SEMICOLON'):  # Catches missing semicolon
+        if not self.expect('SEMICOLON'):  
             return None
 
         return CompoundAssignment(identifier, operator, value, line, col)
@@ -625,12 +625,12 @@ class Parser:
         if_token = self.expect('KEYWORD', 'if')
         line, col = if_token.line, if_token.col
 
-        if not self.expect('LPAREN'):  # Catches missing '('
+        if not self.expect('LPAREN'):  
             return None
         
         condition = self.logical_or_expression()
         
-        if not self.expect('RPAREN'):  # Catches missing ')'
+        if not self.expect('RPAREN'): 
             return None
 
         then_block = self.statement()
@@ -644,12 +644,12 @@ class Parser:
         while_token = self.expect('KEYWORD', 'while')
         line, col = while_token.line, while_token.col
 
-        if not self.expect('LPAREN'):  # Catches missing '('
+        if not self.expect('LPAREN'): 
             return None
         
         condition = self.logical_or_expression()
         
-        if not self.expect('RPAREN'):  # Catches missing ')'
+        if not self.expect('RPAREN'):  
             return None
 
         self.loop_depth += 1
@@ -662,7 +662,7 @@ class Parser:
         for_token = self.expect('KEYWORD', 'for')
         line, col = for_token.line, for_token.col
 
-        if not self.expect('LPAREN'):  # Catches missing '('
+        if not self.expect('LPAREN'): 
             return None
 
         init = None
@@ -678,7 +678,7 @@ class Parser:
         if not self.check('SEMICOLON'):
             condition = self.logical_or_expression()
         
-        if not self.expect('SEMICOLON'):  # Catches missing ';'
+        if not self.expect('SEMICOLON'):  
             return None
 
         update = None
@@ -695,7 +695,7 @@ class Parser:
                 value = self.expression()
                 update = Assignment(id_token.lexeme, value, id_token.line, id_token.col)
 
-        if not self.expect('RPAREN'):  # Catches missing ')'
+        if not self.expect('RPAREN'):  
             return None
 
         self.loop_depth += 1
@@ -726,7 +726,7 @@ class Parser:
         if not self.check('SEMICOLON'):
             value = self.expression()
         
-        if not self.expect('SEMICOLON'):  # Catches missing semicolon
+        if not self.expect('SEMICOLON'):  
             return None
         
         return ReturnStatement(value, token.line, token.col)
@@ -753,12 +753,12 @@ class Parser:
     def expression_statement(self):
         expr = self.expression()
         
-        if not self.expect('SEMICOLON'):  # Catches missing semicolon
+        if not self.expect('SEMICOLON'):  
             return None
         
         return expr
 
-    # Expression parsing with precedence
+    
     def logical_or_expression(self):
         left = self.logical_and_expression()
         while self.check('OPERATOR') and self.current_token.lexeme == '||':
@@ -840,11 +840,11 @@ class Parser:
         if self.check('LPAREN'):
             self.advance()
             expr = self.logical_or_expression()
-            if not self.expect('RPAREN'):  # Catches missing ')'
+            if not self.expect('RPAREN'):  
                 return None
             return expr
 
-        # Better error message for unexpected tokens
+        
         self.report_error(f"Unexpected token in expression: {self.current_token}")
         self.advance()
         return None
@@ -853,12 +853,12 @@ class Parser:
         func_name = name_token.lexeme
         line, col = name_token.line, name_token.col
 
-        if not self.expect('LPAREN'):  # Catches missing '('
+        if not self.expect('LPAREN'): 
             return None
         
         arguments = self.argument_list()
         
-        if not self.expect('RPAREN'):  # Catches missing ')'
+        if not self.expect('RPAREN'):  
             return None
 
         return FunctionCall(func_name, arguments, line, col)
@@ -1699,7 +1699,7 @@ def run_parser_tests():
         print(f"{Fore.YELLOW}TEST {i}: {test['name']}")
         print(f"{Fore.YELLOW}{'─'*70}")
         
-        # Print Input Code
+        # Print Input Codee
         print(f"\n{Fore.GREEN} INPUT CODE:")
         print(f"{Fore.WHITE}{Style.DIM}{'─'*70}")
         for line in test['code'].split('\n'):
