@@ -1,23 +1,5 @@
-# <div algin=center>0xParser</div>
+# <div align=center>0xParser</div>
 
-# 0xParser Documentation
-
-## Table of Contents
-
-1. Overview
-2. Architecture
-3. Installation & Setup
-4. Core Components
-5. AST Node Reference
-6. Parser API
-7. Grammar Specification
-8. Error Handling
-9. Symbol Table
-10. Usage Examples
-11. Testing
-12. Performance Considerations
-
----
 
 ## Overview
 
