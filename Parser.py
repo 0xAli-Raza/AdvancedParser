@@ -19,14 +19,14 @@ def banner():
     info = f"""
     {Fore.CYAN}Creator{Style.DIM}: ALI Raza
     {Fore.CYAN}Github{Style.DIM}: https://github.com/0xAli-Raza/AdvancedParser
-    {Fore.CYAN}Status{Style.DIM}: Stable
-    {Fore.CYAN}Version{Style.DIM}: 3.0
+    {Fore.CYAN}Status{Style.DIM}: Stable (Fixed Error Recovery)
+    {Fore.CYAN}Version{Style.DIM}: 3.1
     """
 
     print(logo + info)
-# =============================================================
+
 #                          AST Nodes
-# =============================================================
+
 class ASTNode:
     def __init__(self, line=None, col=None):
         self.line = line
@@ -229,9 +229,9 @@ class ReturnStatement(ASTNode):
         return f"ReturnStatement({self.value})"
 
 
-# =============================================================
+
 #                       AST Printer
-# =============================================================
+
 def print_ast(node, indent=0, prefix=""):
     indent_str = "  " * indent
 
@@ -325,9 +325,9 @@ def print_ast(node, indent=0, prefix=""):
         print(f"{indent_str}{prefix}{node}")
 
 
-# =============================================================
+
 #                     Symbol Table (Parser)
-# =============================================================
+
 class Symbol:
     def __init__(self, name, var_type, is_function=False, params=None, value=None):
         self.name = name
@@ -373,9 +373,9 @@ class SymbolTable:
         return name in self.symbols
 
 
-# =============================================================
+
 #                        Token Class
-# =============================================================
+
 class Token:
     def __init__(self, token_type, lexeme, line, col):
         self.type = token_type
@@ -387,9 +387,9 @@ class Token:
         return f"Token({self.type}, '{self.lexeme}')"
 
 
-# =============================================================
+
 #                          Parser
-# =============================================================
+
 class Parser:
     def __init__(self, tokens):
         self.tokens = [Token(*t) if len(t) == 4 else Token(t[0], t[1], t[2], 0)
@@ -427,6 +427,11 @@ class Parser:
         return None
 
     def expect(self, token_type, lexeme=None):
+        if token_type == 'IDENTIFIER' and self.current_token and self.current_token.type == 'IDENTIFIER':
+            if not self.current_token.lexeme or self.current_token.lexeme.strip() == '':
+                self.report_error(f"Empty identifier")
+                return None
+        
         token = self.match(token_type, lexeme)
         if token:
             return token
@@ -442,19 +447,42 @@ class Parser:
             error = f"Syntax Error at EOF - {message}"
         self.errors.append(error)
         print(f" {error}")
+        if len(self.errors) >= 10:  
+            print(f"{Fore.RED} Too many errors, stopping parse...")
+            self.current_token = None
 
     def synchronize(self):
-        sync_tokens = {'SEMICOLON', 'EOF', 'RBRACE'}
+        """Skip tokens until we reach a safe synchronization point"""
+        sync_tokens = {'SEMICOLON', 'EOF', 'RBRACE', 'LBRACE'}
         sync_keywords = {'int', 'float', 'char', 'void', 'if', 'while', 'for', 'return'}
         
-        while self.current_token:
-            if self.current_token.type in sync_tokens:
-                if self.current_token.type == 'SEMICOLON':
-                    self.advance()
+        
+        self.advance()
+        
+        while self.current_token and self.current_token.type != 'EOF':
+            
+            if self.current_token.type == 'SEMICOLON':
+                self.advance()
                 return
+            
+            
+            if self.current_token.type in ['RBRACE', 'LBRACE']:
+                return
+                
+            
             if self.current_token.type == 'KEYWORD' and self.current_token.lexeme in sync_keywords:
                 return
+                
             self.advance()
+
+    def validate_identifier(self, token, context="identifier"):
+        """Validate that an identifier token has a non-empty lexeme."""
+        if not token:
+            return None
+        if not token.lexeme or token.lexeme.strip() == '':
+            self.report_error(f"Empty {context}")
+            return None
+        return token
 
     # Main Parse Entry
     def parse(self):
@@ -467,10 +495,14 @@ class Parser:
     def program(self):
         statements = []
         while self.current_token and self.current_token.type != 'EOF':
+            if len(self.errors) >= 10:
+                break
+                
             stmt = self.declaration_or_statement()
             if stmt:
                 statements.append(stmt)
-            if self.errors and self.current_token and self.current_token.type != 'EOF':
+           
+            elif self.errors:
                 self.synchronize()
         return Program(statements)
 
@@ -487,19 +519,36 @@ class Parser:
     def function_declaration(self):
         type_token = self.expect('KEYWORD')
         if not type_token:
+            self.synchronize()
             return None
         return_type = type_token.lexeme
         line, col = type_token.line, type_token.col
 
         name_token = self.expect('IDENTIFIER')
+        name_token = self.validate_identifier(name_token, "function name")
         if not name_token:
+            
+            brace_count = 0
+            found_opening = False
+            while self.current_token and self.current_token.type != 'EOF':
+                if self.current_token.type == 'LBRACE':
+                    brace_count += 1
+                    found_opening = True
+                elif self.current_token.type == 'RBRACE':
+                    brace_count -= 1
+                    if found_opening and brace_count == 0:
+                        self.advance()  
+                        return None
+                self.advance()
             return None
         func_name = name_token.lexeme
 
         if not self.expect('LPAREN'):
+            self.synchronize()
             return None
         parameters = self.parameter_list()
         if not self.expect('RPAREN'):
+            self.synchronize()
             return None
 
         self.symbol_table.declare(func_name, return_type, is_function=True, params=parameters)
@@ -508,8 +557,11 @@ class Parser:
         body = self.block()
         self.function_depth -= 1
 
-        return FunctionDeclaration(return_type, func_name, parameters, body, line, col)
+        if body is None:
+            self.synchronize()
+            return None
 
+        return FunctionDeclaration(return_type, func_name, parameters, body, line, col)
     def parameter_list(self):
         params = []
         if self.check('RPAREN'):
@@ -530,6 +582,7 @@ class Parser:
         if not type_token:
             return None
         name_token = self.expect('IDENTIFIER')
+        name_token = self.validate_identifier(name_token, "parameter")
         if not name_token:
             return None
         return Parameter(type_token.lexeme, name_token.lexeme, type_token.line, type_token.col)
@@ -568,101 +621,156 @@ class Parser:
     def declaration(self):
         type_token = self.expect('KEYWORD')
         if not type_token:
+            self.synchronize()
             return None
         var_type = type_token.lexeme
         line, col = type_token.line, type_token.col
 
         id_token = self.expect('IDENTIFIER')
+        id_token = self.validate_identifier(id_token, "variable")
         if not id_token:
+            self.synchronize()
             return None
         identifier = id_token.lexeme
 
         value = None
         if self.match('OPERATOR', '='):
             value = self.expression()
+            if value is None:
+                self.synchronize()
+                return None
 
-        self.expect('SEMICOLON')
+        if not self.expect('SEMICOLON'):
+            self.synchronize()
+            return None
+        
         self.symbol_table.declare(identifier, var_type, value)
 
         return VarDeclaration(var_type, identifier, value, line, col)
 
     def assignment(self):
         id_token = self.expect('IDENTIFIER')
+        id_token = self.validate_identifier(id_token, "variable")
         if not id_token:
+            self.synchronize()
             return None
         identifier = id_token.lexeme
         line, col = id_token.line, id_token.col
 
         if not self.expect('OPERATOR', '='):
+            self.synchronize()
             return None
         
         value = self.expression()
+        if value is None:
+            self.synchronize()
+            return None
         
-        if not self.expect('SEMICOLON'): 
+        if not self.expect('SEMICOLON'):
+            self.synchronize()
             return None
 
         return Assignment(identifier, value, line, col)
+
     def compound_assignment(self):
         id_token = self.expect('IDENTIFIER')
+        id_token = self.validate_identifier(id_token, "variable")
         if not id_token:
+            self.synchronize()
             return None
         identifier = id_token.lexeme
         line, col = id_token.line, id_token.col
 
         op_token = self.expect('OPERATOR')
         if not op_token:
+            self.synchronize()
             return None
         operator = op_token.lexeme
 
         value = self.expression()
+        if value is None:
+            self.synchronize()
+            return None
         
-        if not self.expect('SEMICOLON'):  
+        if not self.expect('SEMICOLON'):
+            self.synchronize()
             return None
 
         return CompoundAssignment(identifier, operator, value, line, col)
 
     def if_statement(self):
         if_token = self.expect('KEYWORD', 'if')
+        if not if_token:
+            self.synchronize()
+            return None
         line, col = if_token.line, if_token.col
 
-        if not self.expect('LPAREN'):  
+        if not self.expect('LPAREN'):
+            self.synchronize()
             return None
         
         condition = self.logical_or_expression()
+        if condition is None:
+            self.synchronize()
+            return None
         
-        if not self.expect('RPAREN'): 
+        if not self.expect('RPAREN'):
+            self.synchronize()
             return None
 
         then_block = self.statement()
+        if then_block is None:
+            self.synchronize()
+            return None
 
         else_block = None
         if self.match('KEYWORD', 'else'):
             else_block = self.statement()
+            if else_block is None:
+                self.synchronize()
+                return None
 
         return IfStatement(condition, then_block, else_block, line, col)
+
     def while_statement(self):
         while_token = self.expect('KEYWORD', 'while')
+        if not while_token:
+            self.synchronize()
+            return None
         line, col = while_token.line, while_token.col
 
-        if not self.expect('LPAREN'): 
+        if not self.expect('LPAREN'):
+            self.synchronize()
             return None
         
         condition = self.logical_or_expression()
+        if condition is None:
+            self.synchronize()
+            return None
         
-        if not self.expect('RPAREN'):  
+        if not self.expect('RPAREN'):
+            self.synchronize()
             return None
 
         self.loop_depth += 1
         body = self.statement()
         self.loop_depth -= 1
 
+        if body is None:
+            self.synchronize()
+            return None
+
         return WhileStatement(condition, body, line, col)
 
     def for_statement(self):
         for_token = self.expect('KEYWORD', 'for')
+        if not for_token:
+            self.synchronize()
+            return None
         line, col = for_token.line, for_token.col
 
-        if not self.expect('LPAREN'): 
+        if not self.expect('LPAREN'):
+            self.synchronize()
             return None
 
         init = None
@@ -678,47 +786,74 @@ class Parser:
         if not self.check('SEMICOLON'):
             condition = self.logical_or_expression()
         
-        if not self.expect('SEMICOLON'):  
+        if not self.expect('SEMICOLON'):
+            self.synchronize()
             return None
 
         update = None
         if not self.check('RPAREN'):
-            id_token = self.current_token
-            self.advance()
-            if self.check('OPERATOR') and self.current_token.lexeme in ['+=', '-=', '*=', '/=']:
-                op = self.current_token.lexeme
-                self.advance()
-                value = self.expression()
-                update = CompoundAssignment(id_token.lexeme, op, value, id_token.line, id_token.col)
-            elif self.check('OPERATOR') and self.current_token.lexeme == '=':
-                self.advance()
-                value = self.expression()
-                update = Assignment(id_token.lexeme, value, id_token.line, id_token.col)
+            if not self.check('IDENTIFIER'):
+                pass
+            else:
+                id_token = self.current_token
+                id_token = self.validate_identifier(id_token, "variable")
+                if id_token:
+                    self.advance()
+                    if self.check('OPERATOR') and self.current_token.lexeme in ['+=', '-=', '*=', '/=']:
+                        op = self.current_token.lexeme
+                        self.advance()
+                        value = self.expression()
+                        if value:
+                            update = CompoundAssignment(id_token.lexeme, op, value, id_token.line, id_token.col)
+                    elif self.check('OPERATOR') and self.current_token.lexeme == '=':
+                        self.advance()
+                        value = self.expression()
+                        if value:
+                            update = Assignment(id_token.lexeme, value, id_token.line, id_token.col)
 
-        if not self.expect('RPAREN'):  
+        if not self.expect('RPAREN'):
+            self.synchronize()
             return None
 
         self.loop_depth += 1
         body = self.statement()
         self.loop_depth -= 1
 
+        if body is None:
+            self.synchronize()
+            return None
+
         return ForStatement(init, condition, update, body, line, col)
+
     def break_statement(self):
         token = self.expect('KEYWORD', 'break')
+        if not token:
+            self.synchronize()
+            return None
         if self.loop_depth == 0:
             self.report_error("'break' not inside loop")
-        self.expect('SEMICOLON')
+        if not self.expect('SEMICOLON'):
+            self.synchronize()
+            return None
         return BreakStatement(token.line, token.col)
 
     def continue_statement(self):
         token = self.expect('KEYWORD', 'continue')
+        if not token:
+            self.synchronize()
+            return None
         if self.loop_depth == 0:
             self.report_error("'continue' not inside loop")
-        self.expect('SEMICOLON')
+        if not self.expect('SEMICOLON'):
+            self.synchronize()
+            return None
         return ContinueStatement(token.line, token.col)
 
     def return_statement(self):
         token = self.expect('KEYWORD', 'return')
+        if not token:
+            self.synchronize()
+            return None
         if self.function_depth == 0:
             self.report_error("'return' not inside function")
         
@@ -726,14 +861,15 @@ class Parser:
         if not self.check('SEMICOLON'):
             value = self.expression()
         
-        if not self.expect('SEMICOLON'):  
+        if not self.expect('SEMICOLON'):
+            self.synchronize()
             return None
         
         return ReturnStatement(value, token.line, token.col)
 
     def block(self):
         if not self.expect('LBRACE'):
-            return None  
+            return None
         
         line = self.current_token.line if self.current_token else 0
         col = self.current_token.col if self.current_token else 0
@@ -743,73 +879,101 @@ class Parser:
             stmt = self.statement()
             if stmt:
                 statements.append(stmt)
+            elif self.errors:
+                self.synchronize()
 
-        if not self.expect('RBRACE'):  
+        if not self.expect('RBRACE'):
             return None
         
         return Block(statements, line, col)
 
-
     def expression_statement(self):
         expr = self.expression()
+        if expr is None:
+            self.synchronize()
+            return None
         
-        if not self.expect('SEMICOLON'):  
+        if not self.expect('SEMICOLON'):
+            self.synchronize()
             return None
         
         return expr
 
-    
     def logical_or_expression(self):
         left = self.logical_and_expression()
+        if left is None:
+            return None
         while self.check('OPERATOR') and self.current_token.lexeme == '||':
             op = self.current_token
             self.advance()
             right = self.logical_and_expression()
+            if right is None:
+                return None
             left = LogicalOp('||', left, right, op.line, op.col)
         return left
 
     def logical_and_expression(self):
         left = self.equality_expression()
+        if left is None:
+            return None
         while self.check('OPERATOR') and self.current_token.lexeme == '&&':
             op = self.current_token
             self.advance()
             right = self.equality_expression()
+            if right is None:
+                return None
             left = LogicalOp('&&', left, right, op.line, op.col)
         return left
 
     def equality_expression(self):
         left = self.relational_expression()
+        if left is None:
+            return None
         while self.check('OPERATOR') and self.current_token.lexeme in ['==', '!=']:
             op = self.current_token
             self.advance()
             right = self.relational_expression()
+            if right is None:
+                return None
             left = ComparisonOp(op.lexeme, left, right, op.line, op.col)
         return left
 
     def relational_expression(self):
         left = self.expression()
+        if left is None:
+            return None
         while self.check('OPERATOR') and self.current_token.lexeme in ['<', '>', '<=', '>=']:
             op = self.current_token
             self.advance()
             right = self.expression()
+            if right is None:
+                return None
             left = ComparisonOp(op.lexeme, left, right, op.line, op.col)
         return left
 
     def expression(self):
         left = self.term()
+        if left is None:
+            return None
         while self.check('OPERATOR') and self.current_token.lexeme in ['+', '-']:
             op = self.current_token
             self.advance()
             right = self.term()
+            if right is None:
+                return None
             left = BinaryOp(op.lexeme, left, right, op.line, op.col)
         return left
 
     def term(self):
         left = self.factor()
+        if left is None:
+            return None
         while self.check('OPERATOR') and self.current_token.lexeme in ['*', '/', '%']:
             op = self.current_token
             self.advance()
             right = self.factor()
+            if right is None:
+                return None
             left = BinaryOp(op.lexeme, left, right, op.line, op.col)
         return left
 
@@ -818,6 +982,8 @@ class Parser:
             op = self.current_token
             self.advance()
             expr = self.factor()
+            if expr is None:
+                return None
             return LogicalOp('!', expr, None, op.line, op.col)
 
         if self.check('INTEGER_LITERAL') or self.check('FLOAT_LITERAL'):
@@ -835,30 +1001,40 @@ class Parser:
                 return self.function_call()
             token = self.current_token
             self.advance()
+            if not token.lexeme or token.lexeme.strip() == '':
+                self.report_error("Empty identifier")
+                return None
             return Identifier(token.lexeme, token.line, token.col)
 
         if self.check('LPAREN'):
             self.advance()
             expr = self.logical_or_expression()
-            if not self.expect('RPAREN'):  
+            if expr is None:
+                return None
+            if not self.expect('RPAREN'):
                 return None
             return expr
 
-        
         self.report_error(f"Unexpected token in expression: {self.current_token}")
-        self.advance()
         return None
+
     def function_call(self):
         name_token = self.expect('IDENTIFIER')
+        name_token = self.validate_identifier(name_token, "function")
+        if not name_token:
+            self.synchronize()
+            return None
         func_name = name_token.lexeme
         line, col = name_token.line, name_token.col
 
-        if not self.expect('LPAREN'): 
+        if not self.expect('LPAREN'):
+            self.synchronize()
             return None
         
         arguments = self.argument_list()
         
-        if not self.expect('RPAREN'):  
+        if not self.expect('RPAREN'):
+            self.synchronize()
             return None
 
         return FunctionCall(func_name, arguments, line, col)
@@ -877,9 +1053,6 @@ class Parser:
             if arg:
                 args.append(arg)
         return args
-
-
-
 
 
 def run_parser_tests():
@@ -1687,7 +1860,99 @@ def run_parser_tests():
                 ('RBRACE', '}', 4, 0),
                 ('EOF', '', 4, 1)
             ]
-        }
+        },
+
+        {
+    "name": "Main with If-Else and For Loop",
+    "code": """int main(){
+    int x = 10;
+    
+    if(x==10){
+        printf("Wow It is 10");
+    }else{
+        printf("It is not 10");
+    }
+    printf("\\n");
+    for(int i=0; i<10; i+=1){
+        
+        printf("%d", i);
+        printf("\\n");
+    }
+    return 0;
+}""",
+    "tokens": [
+        ('KEYWORD', 'int', 1, 0),
+        ('IDENTIFIER', 'main', 1, 4),
+        ('LPAREN', '(', 1, 8),
+        ('RPAREN', ')', 1, 9),
+        ('LBRACE', '{', 1, 10),
+        ('KEYWORD', 'int', 2, 4),
+        ('IDENTIFIER', 'x', 2, 8),
+        ('OPERATOR', '=', 2, 10),
+        ('INTEGER_LITERAL', '10', 2, 12),
+        ('SEMICOLON', ';', 2, 14),
+        ('KEYWORD', 'if', 4, 4),
+        ('LPAREN', '(', 4, 6),
+        ('IDENTIFIER', 'x', 4, 7),
+        ('OPERATOR', '==', 4, 8),
+        ('INTEGER_LITERAL', '10', 4, 10),
+        ('RPAREN', ')', 4, 12),
+        ('LBRACE', '{', 4, 13),
+        ('IDENTIFIER', 'printf', 5, 8),
+        ('LPAREN', '(', 5, 14),
+        ('STRING_LITERAL', '"Wow It is 10"', 5, 15),
+        ('RPAREN', ')', 5, 29),
+        ('SEMICOLON', ';', 5, 30),
+        ('RBRACE', '}', 6, 4),
+        ('KEYWORD', 'else', 6, 5),
+        ('LBRACE', '{', 6, 9),
+        ('IDENTIFIER', 'printf', 7, 8),
+        ('LPAREN', '(', 7, 14),
+        ('STRING_LITERAL', '"It is not 10"', 7, 15),
+        ('RPAREN', ')', 7, 29),
+        ('SEMICOLON', ';', 7, 30),
+        ('RBRACE', '}', 8, 4),
+        ('IDENTIFIER', 'printf', 9, 4),
+        ('LPAREN', '(', 9, 10),
+        ('STRING_LITERAL', '"\\n"', 9, 11),
+        ('RPAREN', ')', 9, 15),
+        ('SEMICOLON', ';', 9, 16),
+        ('KEYWORD', 'for', 10, 4),
+        ('LPAREN', '(', 10, 7),
+        ('KEYWORD', 'int', 10, 8),
+        ('IDENTIFIER', 'i', 10, 12),
+        ('OPERATOR', '=', 10, 13),
+        ('INTEGER_LITERAL', '0', 10, 14),
+        ('SEMICOLON', ';', 10, 15),
+        ('IDENTIFIER', 'i', 10, 17),
+        ('OPERATOR', '<', 10, 18),
+        ('INTEGER_LITERAL', '10', 10, 19),
+        ('SEMICOLON', ';', 10, 21),
+        ('IDENTIFIER', 'i', 10, 23),
+        ('OPERATOR', '+=', 10, 24),
+        ('INTEGER_LITERAL', '1', 10, 26),
+        ('RPAREN', ')', 10, 27),
+        ('LBRACE', '{', 10, 28),
+        ('IDENTIFIER', 'printf', 12, 8),
+        ('LPAREN', '(', 12, 14),
+        ('STRING_LITERAL', '"%d"', 12, 15),
+        ('COMMA', ',', 12, 19),
+        ('IDENTIFIER', 'i', 12, 21),
+        ('RPAREN', ')', 12, 22),
+        ('SEMICOLON', ';', 12, 23),
+        ('IDENTIFIER', 'printf', 13, 8),
+        ('LPAREN', '(', 13, 14),
+        ('STRING_LITERAL', '"\\n"', 13, 15),
+        ('RPAREN', ')', 13, 19),
+        ('SEMICOLON', ';', 13, 20),
+        ('RBRACE', '}', 14, 4),
+        ('KEYWORD', 'return', 15, 4),
+        ('INTEGER_LITERAL', '0', 15, 11),
+        ('SEMICOLON', ';', 15, 12),
+        ('RBRACE', '}', 16, 0),
+        ('EOF', '', 16, 1)
+    ]
+}
     ]
     
     
