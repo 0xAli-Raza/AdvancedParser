@@ -75,35 +75,6 @@ pip install colorama
 python parser.py
 ```
 
-### Quick Start
-
-```python
-
-from parser import Parser, print_ast
-#Define your tokens (typically from a lexer)
-tokens = [
-('KEYWORD', 'int', 1, 0),
-('IDENTIFIER', 'main', 1, 4),
-('LPAREN', '(', 1, 8),
-('RPAREN', ')', 1, 9),
-('LBRACE', '{', 1, 11),
-('KEYWORD', 'return', 2, 4),
-('INTEGER_LITERAL', '0', 2, 11),
-('SEMICOLON', ';', 2, 12),
-('RBRACE', '}', 3, 0),
-('EOF', '', 3, 1)
-]
-
-#Parse the tokens
-parser = Parser(tokens)
-ast = parser.parse()
-#Display the AST
-if not parser.errors:
-print_ast(ast)
-else:
-for error in parser.errors:
-print(error)
-```
 
 ---
 
